@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -603,6 +603,20 @@ namespace AlgebraSQLizer
                 return new ASTNode("Table", tableName);
             }
 
+
+            /// ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            private string RemoveClosingCharacters(string conditionContent)
+            {
+                // Check if the conditionContent ends with "]*]"
+                if (conditionContent.EndsWith("]*]"))
+                {
+                    // Remove the "]*]" from the end of the string
+                    return conditionContent.Substring(0, conditionContent.Length - 3);
+                }
+
+                // If it doesn't end with "]*]", return the string as is
+                return conditionContent;
+            }
             private ASTNode ParseCondition()
             {
                 // Check if the current token is a "condition" token like condition[*[age > 5]*]
@@ -614,20 +628,23 @@ namespace AlgebraSQLizer
                     NextToken();  // Consume the condition[*[ token
 
                     // Now, we need to collect the entire condition (age > 5, for example) until we encounter the closing "*]"
-                    string conditionContent = conditionToken.Substring(10, conditionToken.Length - 13); // Strip the "condition[*[" and "*]"
+                    // Strip the "condition[*[" and "*]"
+                    string conditionContent = conditionToken.Substring(12); // Start after "condition[*["
 
                     // Loop through and collect any additional parts of the condition until we reach the end of the condition
-                    while (CurrentToken() != null && !CurrentToken().EndsWith("*]"))
+                    while (CurrentToken() != null && !CurrentToken().EndsWith("]*]"))
                     {
                         conditionContent += " " + CurrentToken();  // Append the next part of the condition
                         NextToken();  // Move to the next token
                     }
 
-                    // Now we have the complete condition (e.g., "age > 5")
-                    if (CurrentToken() != null && CurrentToken().EndsWith("*]"))
+                    // If the last token ends with "*]", consume it (we don't need to include "*]" in the condition content)
+                    if (CurrentToken() != null && CurrentToken().EndsWith("]*]"))
                     {
+                        conditionContent += " " + CurrentToken().Substring(0, CurrentToken().Length - 3);  // Append without "*]"
                         NextToken();  // Consume the closing "*]"
                     }
+                    conditionContent = RemoveClosingCharacters(conditionContent);
 
                     // Return the whole condition as a single node in the AST
                     return new ASTNode("Condition", conditionContent);  // Store the full condition as a string
@@ -635,6 +652,12 @@ namespace AlgebraSQLizer
 
                 throw new Exception("Expected a valid condition");
             }
+            //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
 
 
             private ASTNode ParseExpression()
@@ -705,7 +728,7 @@ namespace AlgebraSQLizer
                     if (where != null)
                     {
                         // Reorder to place the WHERE condition before the SELECT (projection)
-                        return new ASTNode("Query", where, columns, tables, groupBy);
+                        return new ASTNode("Query", columns, tables, where, groupBy);
                     }
                     // If no WHERE condition, just return as-is
                     return new ASTNode("Query", columns, tables, where, groupBy);
@@ -714,6 +737,7 @@ namespace AlgebraSQLizer
                 // Return the node as-is if no optimization is needed
                 return node;
             }
+
         }
 
         // AST Node structure
