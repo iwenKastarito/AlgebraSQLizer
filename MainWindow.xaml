@@ -1,0 +1,32 @@
+﻿<Window x:Class="AlgebraSQLizer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AlgebraSQLizer"
+        mc:Ignorable="d"
+        Title="Loginview" Height="450" Width="800" 
+        WindowStyle="None" 
+        ResizeMode="NoResize"
+        Background="Transparent"
+        AllowsTransparency="True"
+        WindowStartupLocation="CenterScreen"
+        MouseDown="Window_MouseDown">
+
+    <Border CornerRadius="17"
+            Background="#1b1448"
+            BorderBrush="Purple"
+            BorderThickness="5">
+
+        <!-- Center the Button in the Window -->
+        <Grid>
+            <Button Content="Offline Mode"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Click="OpenDashButton_Click"
+                    Width="150"
+                    Height="50"/>
+        </Grid>
+
+    </Border>
+</Window>
