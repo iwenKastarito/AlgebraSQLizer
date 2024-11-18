@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -295,14 +295,48 @@ namespace AlgebraSQLizer
                     string whereClause = node.Children.Count > 2 ? ConvertASTToRelationalAlgebra(node.Children[2]) : string.Empty; // WHERE
                     string groupByClause = node.Children.Count > 3 ? ConvertASTToRelationalAlgebra(node.Children[3]) : string.Empty; // GROUP BY
                     return $"{selectClause} {fromClause} {whereClause} {groupByClause}".Trim();
-
+                //newname
                 case "Columns":
                     // Handle the columns (projection)
-                    return $"π {string.Join(", ", node.Children.Select(c => ConvertASTToRelationalAlgebra(c)))}";
+
+                    // Process each child node and replace the "newname[*[" prefix with "→"
+                    var cleanedNodeInfo = node.Children.Select(c =>
+                    {
+                        // If the node is a Newname type, replace the prefix with "→"
+                        if (c.Type == "Newname")
+                        {
+                            string cleanedValue = c.Value;
+
+                            // Replace "newname[*[" with "→" and remove "*]" suffix
+                            if (cleanedValue.StartsWith("newname[*[") && cleanedValue.EndsWith("*]"))
+                            {
+                                cleanedValue = "→ " + cleanedValue.Substring(10, cleanedValue.Length - 13); // Replace and extract the part inside
+                            }
+
+                            // Return the cleaned value for this Newname node
+                            return cleanedValue;
+                        }
+                        else
+                        {
+                            // For other types, just return the relational algebra conversion
+                            return ConvertASTToRelationalAlgebra(c);
+                        }
+                    }).ToList();
+
+                    // Join the processed values with commas and add the projection operator
+                    return $"π {string.Join(", ", cleanedNodeInfo)}";
+
+                //case "newname":
+                //    // Handle the columns (projection)
+                //    return $"π {string.Join(", ", node.Children.Select(c => ConvertASTToRelationalAlgebra(c)))}";
 
                 case "Column":
                     // Handle individual columns (used in SELECT)
                     return ExtractIdentifier(node.Value);  // Return the column name (e.g., "ID", "*")
+
+
+                case "newname":
+                    return " → " + ExtractIdentifier(node.Value);
 
                 case "Table":
                     // Handle the table name (FROM)
@@ -535,30 +569,28 @@ namespace AlgebraSQLizer
                 if (!Accept("Keyword[*[SELECT]*]"))
                     throw new Exception("Expected SELECT");
 
-                // Parse columns in the SELECT clause
                 ASTNode columns = ParseColumns();
+
+
+
 
                 if (!Accept("Keyword[*[FROM]*]"))
                     throw new Exception("Expected FROM");
 
-                // Parse the table(s) in the FROM clause
                 ASTNode tables = ParseTables();
 
-                // After parsing the table, check for optional clauses like WHERE, GROUP BY, etc.
                 ASTNode whereCondition = null;
                 if (Accept("Keyword[*[WHERE]*]"))
                 {
                     whereCondition = ParseCondition();
                 }
 
-                // Additional optional clauses like GROUP BY, HAVING, etc.
                 ASTNode groupByCondition = null;
                 if (Accept("Keyword[*[GROUP BY]*]"))
                 {
                     groupByCondition = ParseColumns();  // Assuming columns are listed for GROUP BY
                 }
 
-                // Return the final parsed query AST
                 return new ASTNode("Query", columns, tables, whereCondition, groupByCondition);
             }
 
@@ -566,21 +598,25 @@ namespace AlgebraSQLizer
             {
                 List<ASTNode> columns = new List<ASTNode>();
 
-                // Loop through and collect columns, could be "*" or specific column names
                 do
                 {
                     columns.Add(ParseColumn());
-                } while (Accept("Operator[*[,]*]"));  // Accept commas if multiple columns
+                } while (Accept("Operator[*[,]*]") || Accept("Keyword[*[AS]*]"));
 
                 return new ASTNode("Columns", columns.ToArray());
             }
 
             private ASTNode ParseColumn()
             {
-                // Check if it's "*" (all columns) or a specific column
                 if (Accept("Operator[*[*]*]"))
                 {
                     return new ASTNode("Column", "*");
+                }
+                else if (CurrentToken() != null && CurrentToken().StartsWith("newname[*["))
+                {
+                    string columnName = CurrentToken();
+                    NextToken();
+                    return new ASTNode("Newname", columnName);
                 }
                 else if (CurrentToken() != null && CurrentToken().StartsWith("Identifier[*["))
                 {
@@ -594,7 +630,6 @@ namespace AlgebraSQLizer
 
             private ASTNode ParseTables()
             {
-                // Expect a table name after FROM
                 if (CurrentToken() == null || !CurrentToken().StartsWith("Identifier[*["))
                     throw new Exception("Expected Table after FROM");
 
@@ -603,118 +638,112 @@ namespace AlgebraSQLizer
                 return new ASTNode("Table", tableName);
             }
 
+            private ASTNode ParseRename()
+            {
+                if (Accept("Keyword[*[AS]*]"))
+                {
+                    string newName = CurrentToken();
+                    NextToken();
+                    return new ASTNode("Rename", newName);
+                }
+                return null;
+            }
+
+            private ASTNode ParseJoin()
+            {
+                if (Accept("Keyword[*[JOIN]*]") || Accept("Keyword[*[NATURAL JOIN]*]"))
+                {
+                    ASTNode leftTable = ParseTable();
+                    ASTNode rightTable = ParseTable();
+
+                    ASTNode condition = null;
+                    if (Accept("Keyword[*[ON]*]"))
+                    {
+                        condition = ParseCondition();
+                    }
+
+                    if (Accept("Keyword[*[LEFT SEMIJOIN]*]"))
+                        return new ASTNode("LeftSemiJoin", leftTable, rightTable, condition);
+
+                    if (Accept("Keyword[*[RIGHT SEMIJOIN]*]"))
+                        return new ASTNode("RightSemiJoin", leftTable, rightTable, condition);
+
+                    if (Accept("Keyword[*[LEFT OUTER JOIN]*]"))
+                        return new ASTNode("LeftOuterJoin", leftTable, rightTable, condition);
+
+                    if (Accept("Keyword[*[RIGHT OUTER JOIN]*]"))
+                        return new ASTNode("RightOuterJoin", leftTable, rightTable, condition);
+
+                    if (Accept("Keyword[*[FULL OUTER JOIN]*]"))
+                        return new ASTNode("FullOuterJoin", leftTable, rightTable, condition);
+
+                    if (Accept("Keyword[*[ANTIJOIN]*]"))
+                        return new ASTNode("AntiJoin", leftTable, rightTable, condition);
+
+                    return new ASTNode("Join", leftTable, rightTable, condition);
+                }
+                return null;
+            }
+
             private ASTNode ParseCondition()
             {
-                // Check if the current token is a "condition" token like condition[*[age > 5]*]
                 string conditionToken = CurrentToken();
-
                 if (conditionToken != null && conditionToken.StartsWith("condition[*["))
                 {
-                    // If it's a condition, consume the token
                     NextToken();  // Consume the condition[*[ token
+                    string conditionContent = conditionToken.Substring(12); // Start after "condition[*["
 
-                    // Now, we need to collect the entire condition (age > 5, for example) until we encounter the closing "*]"
-                    string conditionContent = conditionToken.Substring(10, conditionToken.Length - 13); // Strip the "condition[*[" and "*]"
-
-                    // Loop through and collect any additional parts of the condition until we reach the end of the condition
-                    while (CurrentToken() != null && !CurrentToken().EndsWith("*]"))
+                    while (CurrentToken() != null && !CurrentToken().EndsWith("]*]"))
                     {
                         conditionContent += " " + CurrentToken();  // Append the next part of the condition
-                        NextToken();  // Move to the next token
+                        NextToken();
                     }
 
-                    // Now we have the complete condition (e.g., "age > 5")
-                    if (CurrentToken() != null && CurrentToken().EndsWith("*]"))
+                    if (CurrentToken() != null && CurrentToken().EndsWith("]*]"))
                     {
-                        NextToken();  // Consume the closing "*]"
+                        conditionContent += " " + CurrentToken().Substring(0, CurrentToken().Length - 3);
+                        NextToken();
                     }
 
-                    // Return the whole condition as a single node in the AST
-                    return new ASTNode("Condition", conditionContent);  // Store the full condition as a string
+                    return new ASTNode("Condition", conditionContent);
                 }
 
                 throw new Exception("Expected a valid condition");
             }
 
-
-            private ASTNode ParseExpression()
+            private ASTNode ParseTable()
             {
-                ASTNode left = ParseTerm();
-
-                while (Accept("Operator[*[+]*]") || Accept("Operator[*[-]*]"))
+                if (CurrentToken() != null && CurrentToken().StartsWith("Identifier[*["))
                 {
-                    string operatorType = CurrentToken();
+                    string tableName = CurrentToken();
                     NextToken();
-                    ASTNode right = ParseTerm();
-                    left = new ASTNode(operatorType, left, right);
+                    return new ASTNode("Table", tableName);
                 }
 
-                return left;
+                throw new Exception("Expected Table");
             }
 
-            private ASTNode ParseTerm()
-            {
-                ASTNode left = ParseFactor();
-
-                while (Accept("Operator[*[×]*]") || Accept("Operator[*[/]*]"))
-                {
-                    string operatorType = CurrentToken();
-                    NextToken();
-                    ASTNode right = ParseFactor();
-                    left = new ASTNode(operatorType, left, right);
-                }
-
-                return left;
-            }
-
-            private ASTNode ParseFactor()
-            {
-                if (CurrentToken() != null && CurrentToken().StartsWith("Number[*["))
-                {
-                    string number = CurrentToken();
-                    NextToken();
-                    return new ASTNode("Number", number);
-                }
-                else if (CurrentToken() != null && CurrentToken().StartsWith("Identifier[*["))
-                {
-                    return ParseColumn();  // Could be a column name in an expression
-                }
-                else if (Accept("Operator[*[(]*]"))
-                {
-                    ASTNode expression = ParseExpression();
-                    if (!Accept("Operator[*[)]*]"))
-                        throw new Exception("Expected closing parenthesis");
-                    return expression;
-                }
-
-                throw new Exception("Expected Factor");
-            }
-
-            // Optimization method to push down selection before projection
             private ASTNode OptimizeQuery(ASTNode node)
             {
                 if (node.Type == "Query")
                 {
-                    // Identify components of the query
-                    ASTNode columns = node.Children[0];  // Columns node (SELECT)
-                    ASTNode tables = node.Children[1];   // Tables node (FROM)
-                    ASTNode where = node.Children.Count > 2 ? node.Children[2] : null; // WHERE clause, optional
-                    ASTNode groupBy = node.Children.Count > 3 ? node.Children[3] : null; // GROUP BY clause, optional
+                    ASTNode columns = node.Children[0];
+                    ASTNode tables = node.Children[1];
+                    ASTNode where = node.Children.Count > 2 ? node.Children[2] : null;
+                    ASTNode groupBy = node.Children.Count > 3 ? node.Children[3] : null;
 
-                    // Apply predicate pushdown if the WHERE condition exists
                     if (where != null)
                     {
-                        // Reorder to place the WHERE condition before the SELECT (projection)
-                        return new ASTNode("Query", where, columns, tables, groupBy);
+                        return new ASTNode("Query", columns, tables, where, groupBy);
                     }
-                    // If no WHERE condition, just return as-is
+
                     return new ASTNode("Query", columns, tables, where, groupBy);
                 }
 
-                // Return the node as-is if no optimization is needed
                 return node;
             }
         }
+
 
         // AST Node structure
         public class ASTNode
